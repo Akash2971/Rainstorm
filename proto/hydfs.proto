@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "distributed_log_query/mp2/proto;proto";
+
+service HyDFSService {
+  // Client streams file chunks to the server
+  rpc FileTransfer(stream FileChunk) returns (UploadStatus);
+  // Server streams file chunks back to the client
+  rpc GetFile(FileRequest) returns (stream FileChunk);
+  // Append transfer stream
+  rpc AppendTransfer(stream AppendChunk) returns (UploadStatus);
+}
+
+message FileChunk {
+  string filename = 1;
+  bytes data = 2;
+  string file_content_hash = 3;
+  int32 file_name_hash = 4;
+  string creation_time = 5;
+}
+
+message FileRequest {
+  string filename = 1;
+}
+
+message UploadStatus {
+  bool success = 1;
+  string message = 2;
+}
+
+message AppendChunk {
+  string filename = 1;
+  bytes data = 2;
+  string append_content_hash = 3;
+  string append_id= 4;
+  string client_id = 5;
+  string client_timestamp = 6;
+}
