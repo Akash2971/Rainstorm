@@ -1,0 +1,104 @@
+# RainStorm flow diagrams
+
+Generate a PNG from each Mermaid block below and save as the filename indicated. Use these PNGs in the main README.
+
+---
+
+## 1. Architecture → `architecture.png`
+
+```mermaid
+flowchart LR
+  subgraph RainStorm
+    L[Leader]
+    W1[Worker 1 
+      NM + Tasks]
+    W2[Worker 2
+      NM + Tasks]
+    W3[Worker N
+    NM + Tasks]
+    L <-->|RPC| W1
+    L <-->|RPC| W2
+    L <-->|RPC| W3
+  end
+  subgraph Storage
+    H[HyDFS
+    WAL / Input / Output]
+  end
+  W1 <--> H
+  W2 <--> H
+  W3 <--> H
+```
+
+---
+
+## 2. Task Workflow → `task-workflow.png`
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Leader
+  participant Worker as Worker (NM)
+  participant Task as Task Process
+  participant HyDFS
+  participant NextStage
+
+  User->>Leader: Submit Job
+  Leader->>Leader: Build topology
+  Leader->>Worker: Broadcast topology
+  Worker->>HyDFS: Fetch WAL (if any)
+  Worker->>Worker: Reconstruct Received/Sent maps
+  Worker->>Task: Spawn executable, connect stdin/stdout
+  Worker->>Leader: Ready
+  Leader->>Worker: Stream tuples to stage 1
+  loop Per tuple
+    Worker->>Task: Write to stdin
+    Task->>Worker: Read from stdout
+    Worker->>Worker: Hash key % len(next stage)
+    Worker->>NextStage: Forward to next stage task
+  end
+```
+
+---
+
+## 3. Exactly-Once Semantics → `exactly-once.png`
+
+```mermaid
+flowchart TD
+  A[Tuple arrives] --> B{In received map?}
+  B -->|Yes| C[Duplicate: ACK immediately]
+  B -->|No| D[Log REC]
+  D --> E[Process tuple]
+  E --> F[Emit outputs → SENT records]
+  F --> G[Buffer REC/SENT/ACK]
+  G --> H[Periodically flush to WAL in HyDFS]
+  H --> I[Downstream ACK arrives]
+  I --> J[Log ACK, send ACK to previous stage]
+  G -.-> H
+```
+
+---
+
+## 4. Autoscaling → `autoscaling.png`
+
+```mermaid
+flowchart TD
+  subgraph Metrics
+    M1[NM: collect task metrics]
+    M2[NM → Leader: report periodically]
+    M1 --> M2
+  end
+  subgraph Leader
+    A[Aggregate per-stage throughput]
+    B[Avg tuples/sec per task]
+    C{Avg vs LW / HW?}
+    A --> B --> C
+  end
+  M2 --> A
+  C -->|Below LW| D[Scale down: kill one task]
+  C -->|Above HW| E[Scale up: add task, update topology]
+  C -->|Between LW and HW| F[No change]
+  D --> G[Leader: trigger WAL merge]
+  G --> H[Surviving NM: fetch killed task WAL from HyDFS]
+  H --> I[Replay REC/SENT/ACK into maps]
+  I --> J[Retry un-ACKed sends]
+```
